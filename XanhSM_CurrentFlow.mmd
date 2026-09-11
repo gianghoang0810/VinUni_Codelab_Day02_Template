@@ -1,0 +1,32 @@
+flowchart TD
+    %% Định nghĩa Style
+    classDef default fill:#f9f9f9,stroke:#333,stroke-width:1px;
+    classDef bottleneck fill:#ffebee,stroke:#f44336,stroke-width:2px,color:#c62828;
+    classDef handoff fill:#e3f2fd,stroke:#2196f3,stroke-width:2px,color:#1565c0;
+    classDef startend fill:#e8f5e9,stroke:#4caf50,stroke-width:2px;
+
+    %% Các nodes (bước trong quy trình)
+    Start([Khách hàng phàn nàn / Tự hủy chuyến trên App]) ::: startend
+    
+    Step1[Bước 1: Hệ thống sinh Ticket khiếu nại\nAi: Hệ thống App\n⏱ 1 phút] ::: handoff
+    
+    Step2[Bước 2: Tra cứu định vị GPS\nAi: CSKH/Vận hành\nIn: Ticket, Mã chuyến\nOut: Lộ trình xe\n⏱ 2 phút]
+    
+    Step3[Bước 3: Nghe ghi âm & Đọc chat KH-Tài xế\nAi: CSKH/Vận hành\nIn: File ghi âm, Logs chat\nOut: Tình tiết câu chuyện\n⏱ 7 phút 🔴] ::: bottleneck
+    
+    Step4[Bước 4: Đối chiếu bằng chứng & Ra quyết định phạt\nAi: CSKH/Vận hành\nIn: GPS + Tình tiết\nOut: Quyết định xử lý\n⏱ 5 phút 🔴] ::: bottleneck
+    
+    End([Đóng Ticket & Thông báo KH]) ::: startend
+
+    %% Luồng đi
+    Start -->|🔄 Handoff cho CSKH| Step1
+    Step1 --> Step2
+    Step2 --> Step3
+    Step3 --> Step4
+    Step4 --> End
+
+    %% Chú thích
+    subgraph Legend [Chú thích]
+        L1(🔴 Bottleneck / Điểm nghẽn) ::: bottleneck
+        L2(🔄 Handoff / Điểm chuyển giao) ::: handoff
+    end
