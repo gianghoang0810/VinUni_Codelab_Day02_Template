@@ -135,3 +135,79 @@ Chọn top 3 từ danh sách SCAN: **#1 (Vinpearl/VinWonders Chatbot CSKH), #2 (
 │ dự báo lưu lượng — không cần LLM                            │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+# 🏗️ Phase 3 — DEEP-DIVE (Nhóm)
+
+Bài toán lựa chọn: **Xanh SM — Phát hiện tài xế câu giờ, không tuân thủ điểm đón, ép khách tự hủy chuyến.**
+
+## 3.3. Future-State Flow & AI Fit
+
+* **AI Fit:** Chọn **Rule + LLM Feature (Hybrid)**. Quick Card ban đầu chọn LLM, nhưng khi phân tích sâu, phần phát hiện "xe đứng yên / đi sai hướng" là tín hiệu số từ GPS nên dùng **Rule** sẽ nhanh, rẻ và chính xác hơn. **LLM** chỉ dùng cho phần Rule không làm được: hiểu hội thoại tiếng Việt để bắt các câu ép khách tự hủy và soạn hồ sơ bằng chứng. **Không dùng Agent** vì quyết định xử lý tài xế ảnh hưởng trực tiếp đến thu nhập của họ, bắt buộc phải có con người duyệt.
+
+| Tiêu chí | Rule / State-Machine | LLM Feature | Agentic Loop |
+|---|---|---|---|
+| Phát hiện xe đứng yên, đi sai hướng qua GPS | ✅ Tốt nhất (ngưỡng khoảng cách, tốc độ, hướng) | ❌ Không cần thiết | ❌ Quá mức cần thiết |
+| Hiểu hội thoại *"xa quá, bạn hủy giúp mình nhé"* | ❌ Bắt keyword dễ sót / nhầm | ✅ Hiểu ngữ cảnh, cách nói lóng | ⚠️ Làm được nhưng thừa |
+| Soạn tóm tắt hồ sơ bằng chứng | ❌ Không làm được | ✅ Phù hợp | ⚠️ Thừa |
+| Tự ra quyết định phạt tài xế | ⛔ Cấm | ⛔ Cấm | ⛔ Cấm — rủi ro cao nhất |
+| Chi phí & độ trễ | Rất thấp, real-time | Trung bình, vài giây | Cao, khó kiểm soát |
+| **Kết luận** | **Dùng cho Bước 1-2** | **Dùng cho Bước 3-4** | **Không dùng** |
+
+* **Quy trình tương lai (Future-State):**
+
+```text
+┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
+│ Bước 1           │     │ Bước 2           │     │ Bước 3           │     │ Bước 4           │
+│ 🟡 Rule giám sát │     │ 🟡 Cảnh báo sớm: │     │ 🔵 LLM phân tích │     │ 🔵 AI soạn hồ sơ │
+│ GPS sau khi tài  │ ──→ │ nhắc tài xế,     │ ──→ │ hội thoại, bắt   │ ──→ │ bằng chứng       │
+│ xế nhận cuốc     │     │ cho khách đổi xe │     │ câu ép tự hủy    │     │ [DRAFT_ONLY]     │
+│                  │     │                  │     │                  │     │                  │
+│ Ai: Hệ thống     │     │ Ai: Hệ thống     │     │ Ai: LLM          │     │ Ai: LLM          │
+│ Real-time        │     │ Real-time        │     │ ~10 giây         │     │ ~5 giây          │
+└──────────────────┘     └──────────────────┘     └──────────────────┘     └──────────────────┘
+                                                                                     │
+                                                                                     ▼
+                                                                           ┌──────────────────┐
+                                                                           │ Bước 5           │
+                                                                           │ 🟢 Vận hành      │
+                                                                           │ duyệt & ra quyết │
+                                                                           │ định xử lý       │
+                                                                           │                  │
+                                                                           │ Ai: Nhân viên    │
+                                                                           │ < 1 phút         │
+                                                                           └──────────────────┘
+
+↩️ Fallback:
+  • LLM lỗi / timeout / JSON sai định dạng / confidence < 0.7
+    → hồ sơ gắn nhãn "Cần review thủ công", nhân viên xử lý như quy trình cũ.
+  • GPS mất tín hiệu (hầm, bãi xe trong tòa nhà) → KHÔNG gắn cờ tự động.
+  • Chuyến không có hội thoại → chỉ dùng bằng chứng GPS, nhân viên quyết định.
+
+🟡 = Rule step (tất định)   🔵 = AI step (LLM)   🟢 = Human step (HITL)
+⏱ Tổng thời gian xác minh: 10-15 phút ──> dưới 1 phút/lượt.
+```
+
+### Chi tiết các bước
+
+| Bước | Loại | Input | Xử lý | Output |
+|---|---|---|---|---|
+| **1** | 🟡 Rule | Luồng GPS của xe, tọa độ điểm đón, thời điểm nhận cuốc | Gắn cờ khi: xe đứng yên > 3 phút; **hoặc** khoảng cách tới điểm đón không giảm sau 5 phút; **hoặc** đi ngược hướng điểm đón > 500 m | Cờ `suspected_stalling` + GPS timeline |
+| **2** | 🟡 Rule | Cờ từ Bước 1 | Gửi nhắc nhở cho tài xế qua App; sau 2 phút vẫn vi phạm → hiện cho khách tùy chọn **đổi tài xế, miễn phí hủy** | Khách được đổi xe thay vì phải chờ hoặc tự hủy |
+| **3** | 🔵 LLM | Log chat trong App + transcript cuộc gọi (đã ẩn SĐT) — kích hoạt khi khách hủy/khiếu nại hoặc chuyến bị gắn cờ | Phát hiện câu ép hủy, viện cớ, hẹn lấy khách ngoài App | JSON `{violation_type, confidence, quotes[]}` |
+| **4** | 🔵 LLM | GPS timeline + kết quả Bước 3 | Soạn tóm tắt hồ sơ vi phạm, đề xuất phân loại theo chính sách xử lý tài xế | Hồ sơ `[DRAFT_ONLY]` kèm trích dẫn nguyên văn và timestamp |
+| **5** | 🟢 Human | Hồ sơ nháp từ Bước 4 | Nhân viên Vận hành xác nhận hoặc bác bỏ, ra quyết định xử lý | Quyết định chính thức + phản hồi cho khách |
+
+### Operational Boundary (Ranh giới vận hành)
+
+* ✅ **AI được phép:** đọc log chat / transcript của **đúng chuyến** bị gắn cờ; phân loại hành vi; tóm tắt bằng chứng; đề xuất mức vi phạm.
+* ⛔ **AI tuyệt đối không được:** tự động phạt, trừ tiền hay khóa tài khoản tài xế; đưa ra kết luận khi không có trích dẫn nguyên văn hoặc timestamp GPS làm bằng chứng; đưa thông tin cá nhân (SĐT, địa chỉ nhà) vào hồ sơ.
+* 🟢 **Bắt buộc con người duyệt (HITL):** mọi quyết định xử lý tài xế do nhân viên Vận hành ra. Tài xế luôn có quyền khiếu nại quyết định.
+
+### Liên kết với Success Metric
+
+| Metric | Bước tạo ra tác động |
+|---|---|
+| Thời gian xác minh lỗi hủy chuyến / câu giờ: 10-15 phút ──> **dưới 1 phút** | Bước 3-4: nhân viên nhận hồ sơ đã tổng hợp sẵn, chỉ cần duyệt thay vì tự nghe lại hội thoại và dò GPS |
+| Giảm **15%** tỷ lệ khách tự hủy do chờ lâu | Bước 1-2: phát hiện sớm và cho khách đổi xe **ngay trong chuyến**, trước khi khách bỏ cuộc |
