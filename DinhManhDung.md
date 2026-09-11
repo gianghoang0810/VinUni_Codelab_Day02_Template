@@ -1,5 +1,5 @@
 # Lab 02 — Worksheet: AI Product Scoping
-**Người thực hiện:** Đinh Mạnh Dũng (DinhManhDung)
+**Người thực hiện:** Đinh Mạnh Dũng
 
 ---
 
